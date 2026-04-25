@@ -1,102 +1,78 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { db } from './lib/firebase-admin.js';
+import { collection, query, where, getDocs, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { getDeadlineWindows, isInDeadlineWindow } from './lib/timeWindows.js';
+import { notify } from './lib/notifications.js';
 
-// In production, you would securely store these in Environment Variables in Vercel.
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY || "AIzaSyAcr4dPTqW8LYzCp8D9dnRfda5pVSCF5_8",
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || "proactive-tracker-9d693.firebaseapp.com",
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID || "proactive-tracker-9d693",
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || "proactive-tracker-9d693.firebasestorage.app",
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "988926796216",
-  appId: process.env.VITE_FIREBASE_APP_ID || "1:988926796216:web:a2fe1721b84b45d607af4d"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+function validateSecret(req) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true; // Dev mode: no secret configured
+  return req.headers['x-cron-secret'] === secret;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
+  if (!validateSecret(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
-    const tasksRef = collection(db, 'tasks');
-    const nowLocal = new Date();
-    // Tasks due within the next 30 minutes
-    const triggerWindowEndTime = new Date(nowLocal.getTime() + 30 * 60000);
-    // Ignore tasks that were due hours ago to prevent bulk spamming if the cron paused
-    const triggerWindowStartTime = new Date(nowLocal.getTime() - 2 * 60 * 60000);
+    const windows = getDeadlineWindows();
 
-    // Query for tasks that are pending and haven't fired webhook yet.
-    // We filter Top/High and the exact datetime in memory to avoid needing complex Firestore indexes initially.
-    const q = query(
-      tasksRef, 
-      where('status', '==', 'Pending'),
-      where('webhookFired', '==', false)
+    const snapshot = await getDocs(
+      query(
+        collection(db, 'tasks'),
+        where('status', '==', 'Pending'),
+        where('webhookFired', '==', false)
+      )
     );
 
-    const snapshot = await getDocs(q);
-    const notificationsToSend = [];
-    const docsToUpdate = [];
-
+    const tasksToNotify = [];
     snapshot.forEach(document => {
       const task = document.data();
-      const id = document.id;
-
-      if (task.priority === 'Top' || task.priority === 'High') {
-        if (task.deadline) {
-          const deadlineDate = new Date(task.deadline.seconds * 1000);
-          
-          if (deadlineDate <= triggerWindowEndTime && deadlineDate >= triggerWindowStartTime) {
-            notificationsToSend.push({ id, ...task });
-            docsToUpdate.push(id);
-          }
-        }
-      }
+      if (task.priority !== 'Top' && task.priority !== 'High') return;
+      if (!task.deadline) return;
+      if (!isInDeadlineWindow(task.deadline.seconds, windows)) return;
+      tasksToNotify.push({ id: document.id, ...task });
     });
 
-    // Make.com Webhook Integration
-    const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL;
-    
-    if (notificationsToSend.length > 0) {
-      if (MAKE_WEBHOOK_URL) {
-        const payload = {
-          message: `URGENT: ${notificationsToSend.length} Priority Tasks Due Soon!`,
-          tasks: notificationsToSend,
-          timestamp: new Date().toISOString()
-        };
-
-        const response = await fetch(MAKE_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-           throw new Error(`Make.com webhook failed: ${response.statusText}`);
-        }
-      } else {
-        console.log("[SIMULATION] Would trigger Make webhook for:", notificationsToSend.length, "tasks.");
-      }
-
-      // Mark tasks as webhookFired = true so they don't fire again logically.
-      const successfulUpdates = [];
-      for (const id of docsToUpdate) {
-        await updateDoc(doc(db, 'tasks', id), { webhookFired: true });
-        successfulUpdates.push(id);
-      }
-
-      return res.status(200).json({ 
-        success: true, 
-        message: `Fired webhook for ${notificationsToSend.length} tasks and marked them as fired.`,
-        updatedTaskIds: successfulUpdates
-      });
-    } else {
-      return res.status(200).json({ success: true, message: 'No urgent high-priority deadline tasks found in the window.' });
+    if (tasksToNotify.length === 0) {
+      return res.status(200).json({ success: true, message: 'No urgent tasks in deadline window.' });
     }
 
+    // Load user settings for notification channels
+    let settings = {};
+    try {
+      const settingsSnap = await getDoc(doc(db, 'settings', 'default'));
+      if (settingsSnap.exists()) settings = settingsSnap.data();
+    } catch (e) {
+      console.warn('Could not load settings:', e.message);
+    }
+
+    const taskList = tasksToNotify.map(t => `• [${t.priority}] ${t.title}`).join('\n');
+    const message = `⚠️ <b>URGENT: ${tasksToNotify.length} task${tasksToNotify.length > 1 ? 's' : ''} due soon!</b>\n\n${taskList}`;
+
+    await notify({ settings, message });
+
+    // Mark tasks so they don't trigger again
+    const updatedIds = [];
+    for (const task of tasksToNotify) {
+      await updateDoc(doc(db, 'tasks', task.id), {
+        webhookFired: true,
+        'remindersSent.whatsappSent': true,
+        'remindersSent.telegramSent': true,
+      });
+      updatedIds.push(task.id);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Notified for ${updatedIds.length} task(s).`,
+      updatedTaskIds: updatedIds,
+    });
   } catch (error) {
-    console.error('Webhook Engine Error:', error);
+    console.error('check-deadlines error:', error);
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 }
