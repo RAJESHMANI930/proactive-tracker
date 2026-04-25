@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSettings } from '../hooks/useSettings';
+import { exportCSV, exportJSON } from '../utils/exportService';
 
 const DEFAULT_FORM = {
   whatsappNumber: '',
@@ -26,7 +27,7 @@ function Field({ label, hint, children }) {
 
 const inputCls = 'w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-sm font-medium';
 
-export default function SettingsPage() {
+export default function SettingsPage({ tasks = [] }) {
   const { settings, loading, updateSettings } = useSettings();
   const [form, setForm] = useState(DEFAULT_FORM);
   const [isSaving, setIsSaving] = useState(false);
@@ -193,6 +194,31 @@ export default function SettingsPage() {
             : 'Save Settings'}
         </button>
       </form>
+
+      {/* Export */}
+      <section className="bg-white/5 rounded-3xl p-6 border border-white/5 flex flex-col gap-4 mt-6">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📤</span>
+          <div>
+            <h3 className="font-bold text-white">Export Tasks</h3>
+            <p className="text-xs text-white/40">Download all {tasks.length} tasks — client-side, no upload</p>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => exportCSV(tasks)}
+            className="flex-1 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-sm font-bold text-white/70 hover:text-white transition-all"
+          >
+            Download CSV
+          </button>
+          <button
+            onClick={() => exportJSON(tasks)}
+            className="flex-1 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-sm font-bold text-white/70 hover:text-white transition-all"
+          >
+            Download JSON
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
