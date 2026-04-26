@@ -3,7 +3,7 @@ import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/fire
 
 function validateSecret(req) {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // Dev mode: no secret configured
+  if (!secret) return false; // Reject if CRON_SECRET not configured
   return req.headers['x-cron-secret'] === secret;
 }
 

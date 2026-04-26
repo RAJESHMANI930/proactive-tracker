@@ -1,14 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
-// TODO: Replace with your Firebase configuration snippet
 const firebaseConfig = {
-  apiKey: "AIzaSyAcr4dPTqW8LYzCp8D9dnRfda5pVSCF5_8",
-  authDomain: "proactive-tracker-9d693.firebaseapp.com",
-  projectId: "proactive-tracker-9d693",
-  storageBucket: "proactive-tracker-9d693.firebasestorage.app",
-  messagingSenderId: "988926796216",
-  appId: "1:988926796216:web:a2fe1721b84b45d607af4d"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 export const app = initializeApp(firebaseConfig);
