@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Tasks: open for now (single-user). Lock down with auth in a future phase.
+    match /tasks/{taskId} {
+      allow read, write: if true;
+    }
+
+    // Settings: open for now. Lock down with auth in a future phase.
+    match /settings/{docId} {
+      allow read, write: if true;
+    }
+  }
+}
