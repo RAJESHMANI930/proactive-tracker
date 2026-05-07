@@ -28,7 +28,7 @@ export function getNextOccurrence(task, from = new Date()) {
 
 // Build a fresh task instance from a recurring template.
 export function buildRecurringInstance(template, nextDeadline) {
-  const { id: parentTaskId, recurrencePattern, recurrenceDays, isRecurring, ...rest } = template;
+  const { id: parentTaskId, recurrencePattern: _recurrencePattern, recurrenceDays: _recurrenceDays, isRecurring: _isRecurring, ...rest } = template;
   return {
     ...rest,
     parentTaskId,
